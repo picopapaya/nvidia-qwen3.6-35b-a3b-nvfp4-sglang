@@ -21,12 +21,21 @@ if [[ "${PREFETCH:-1}" == "1" ]]; then
     echo "   (prefetch skipped/failed; SGLang will download on startup)"
 fi
 
+# The checkpoint is ModelOpt MIXED_PRECISION (NVFP4 experts + FP8 linear-attn),
+# which SGLang detects as "w4afp8" from the model config. Forcing a different
+# --quantization aborts startup, so only pass the flag when explicitly set to
+# something other than "auto"/empty.
+QUANT_ARGS=()
+if [[ -n "${QUANTIZATION:-}" && "${QUANTIZATION}" != "auto" ]]; then
+  QUANT_ARGS=(--quantization "${QUANTIZATION}")
+fi
+
 echo "==> Launching SGLang server on ${HOST}:${PORT}"
 exec python3 -m sglang.launch_server \
   --model-path "${MODEL_ID}" \
   --host "${HOST}" \
   --port "${PORT}" \
-  --quantization "${QUANTIZATION}" \
+  "${QUANT_ARGS[@]}" \
   --kv-cache-dtype "${KV_CACHE_DTYPE}" \
   --context-length "${CONTEXT_LEN}" \
   --mem-fraction-static "${MEM_FRACTION}" \

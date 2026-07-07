@@ -16,14 +16,17 @@
 #   - Max concurrency capped at 4 via --max-running-requests.
 #
 # Base image: CUDA 13.x is required for sm_121a, and Qwen3.6 (qwen3_5_moe arch)
-# modeling support requires SGLang >= v0.5.13.
-ARG SGLANG_IMAGE=lmsysorg/sglang:v0.5.14-cu130
+# modeling support requires SGLang >= v0.5.13. The latest release (v0.5.14)
+# still cannot load this ModelOpt MIXED_PRECISION checkpoint (w4afp8 misrouting
+# + NVFP4-packed MoE shard sizes), so pin a main-branch nightly that has the
+# modelopt_mixed loader fixes. Move back to a release tag once one ships them.
+ARG SGLANG_IMAGE=lmsysorg/sglang:nightly-dev-cu13-20260707-b4155233
 FROM --platform=linux/arm64 ${SGLANG_IMAGE}
 
 ENV MODEL_ID="nvidia/Qwen3.6-35B-A3B-NVFP4" \
     HOST="0.0.0.0" \
     PORT="30000" \
-    QUANTIZATION="modelopt_fp4" \
+    QUANTIZATION="auto" \
     KV_CACHE_DTYPE="auto" \
     CONTEXT_LEN="262144" \
     MEM_FRACTION="0.85" \
@@ -41,6 +44,11 @@ ENV MODEL_ID="nvidia/Qwen3.6-35B-A3B-NVFP4" \
 
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
+
+# Backport upstream ModelOpt MIXED_PRECISION routing (w4afp8 -> modelopt_mixed
+# for NVFP4-bearing checkpoints); without it v0.5.14 crashes loading this model.
+COPY patches/modelopt-mixed-routing.py /tmp/modelopt-mixed-routing.py
+RUN python3 /tmp/modelopt-mixed-routing.py && rm /tmp/modelopt-mixed-routing.py
 
 EXPOSE 30000
 

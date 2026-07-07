@@ -10,7 +10,7 @@ services:
     environment:
       HF_TOKEN: "${HF_TOKEN:-}"   # optional — avoids anonymous download rate limits
       MODEL_ID: "nvidia/Qwen3.6-35B-A3B-NVFP4"
-      QUANTIZATION: "modelopt_fp4"
+      QUANTIZATION: "auto"   # ModelOpt mixed-precision checkpoint; let SGLang auto-detect (modelopt_mixed)
       KV_CACHE_DTYPE: "auto"
       CONTEXT_LEN: "${CONTEXT_LEN:-262144}"
       MEM_FRACTION: "${MEM_FRACTION:-0.85}"
