@@ -2,7 +2,7 @@
 
 Docker image that runs **NVIDIA's NVFP4 quantization of Qwen3.6-35B-A3B** as an OpenAI-compatible API server, built for the **NVIDIA GB10 (DGX Spark)**.
 
-The weights are pre-quantized to **NVFP4** by NVIDIA with [TensorRT Model Optimizer](https://github.com/NVIDIA/TensorRT-Model-Optimizer) and served with [SGLang](https://github.com/sgl-project/sglang) via `--quantization modelopt_fp4`.
+The weights are pre-quantized to **NVFP4** by NVIDIA with [TensorRT Model Optimizer](https://github.com/NVIDIA/TensorRT-Model-Optimizer) and served with [SGLang](https://github.com/sgl-project/sglang). The checkpoint is ModelOpt **mixed precision** (NVFP4 experts + FP8 linear-attention projections), so no `--quantization` flag is passed — SGLang auto-detects it as `modelopt_mixed`.
 
 ## What it is
 
@@ -21,7 +21,14 @@ The GB10 (SM_121a) has no native FP4 GEMM kernel, so SGLang serves NVFP4 through
 - NVIDIA's calibrated quantization scales (ModelOpt), rather than on-the-fly quantization.
 - Linear-attention projections are kept at 8-bit by ModelOpt (mixed precision), protecting the recurrent-state layers from FP4 error.
 
-SGLang **v0.5.13+** is required for the `qwen3_5_moe` architecture; this image uses `lmsysorg/sglang:v0.5.14-cu130` (CUDA 13.x is required for sm_121a).
+## SGLang compatibility
+
+SGLang **v0.5.13+** is required for the `qwen3_5_moe` architecture, and CUDA 13.x for sm_121a — but the latest release (v0.5.14) still cannot load this checkpoint:
+
+1. It routes ModelOpt `MIXED_PRECISION` checkpoints to its DeepSeek-oriented `w4afp8` loader, which hardcodes 128×128 FP8 weight blocks and crashes on this model's 32-wide linear-attention projections (`output_partition_size = 32 is not divisible by ... block_n = 128`).
+2. Even with the routing fixed, its MoE loader miscomputes shard sizes for NVFP4-packed expert weights (`start (0) + length (512) exceeds dimension size (256)`).
+
+Both are fixed on SGLang main, so this image pins a main-branch nightly (`lmsysorg/sglang:nightly-dev-cu13-20260707-b4155233`) and additionally carries `patches/modelopt-mixed-routing.py`, an idempotent backport of the routing fix that no-ops on patched bases but protects if the base is ever moved back to a release tag. Switch to a stable release tag once one ships these fixes.
 
 ## Requirements
 
@@ -47,6 +54,7 @@ The server starts on port **30000** and exposes an OpenAI-compatible API once th
 | Variable | Default | Description |
 |---|---|---|
 | `HF_TOKEN` | *(empty)* | Optional Hugging Face token (avoids anonymous rate limits) |
+| `QUANTIZATION` | `auto` | `auto`/empty lets SGLang detect from the checkpoint (`modelopt_mixed`); any other value is passed as `--quantization` |
 | `CONTEXT_LEN` | `262144` | Maximum context length in tokens |
 | `MEM_FRACTION` | `0.85` | Fraction of VRAM reserved for weights + KV cache |
 | `MAX_RUNNING_REQUESTS` | `4` | Maximum concurrent requests |
