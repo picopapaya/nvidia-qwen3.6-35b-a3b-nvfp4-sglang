@@ -1,0 +1,29 @@
+# Secrets
+.env
+*.env
+
+# Hugging Face model cache
+hf-cache/
+.cache/
+*.cache/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Claude Code project config
+.claude/
