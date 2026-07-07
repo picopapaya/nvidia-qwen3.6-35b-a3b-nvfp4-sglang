@@ -51,7 +51,7 @@ The server starts on port **30000** and exposes an OpenAI-compatible API once th
 | `MEM_FRACTION` | `0.85` | Fraction of VRAM reserved for weights + KV cache |
 | `MAX_RUNNING_REQUESTS` | `4` | Maximum concurrent requests |
 | `REASONING_PARSER` | `qwen3` | SGLang reasoning parser |
-| `TOOL_CALL_PARSER` | `qwen` | SGLang tool-call parser |
+| `TOOL_CALL_PARSER` | `qwen3_coder` | SGLang tool-call parser (per the SGLang Qwen3.6 cookbook) |
 | `ATTENTION_BACKEND` | `triton` | Attention backend for the full-attention layers |
 | `EXTRA_ARGS` | *(empty)* | Extra flags passed directly to `sglang.launch_server` |
 
