@@ -7,13 +7,44 @@
 #   - Multimodal: includes a vision encoder (text + image input)
 #   - 262144-token native context (rope_theta 1e7)
 #
-# Quantization — NVFP4 on SM121a (GB10):
-#   - No native FP4 GEMM kernel on SM12x; SGLang falls back to Marlin, which
-#     dequantizes FP4 → BF16 inside the kernel, so the FP4 FLOPS advantage is lost.
-#   - The win here is footprint: NVFP4 weights are ~20 GB vs ~70 GB BF16, halving
-#     download time vs FP8 and leaving far more unified memory for KV cache.
-#   - Linear-attention projections are kept at 8-bit by ModelOpt (mixed precision).
-#   - Max concurrency capped at 4 via --max-running-requests.
+# Quantization — NVFP4 on this hardware (GB10):
+#   - This chip has no fast native path for 4-bit math. It has to unpack NVFP4
+#     back to a bigger format (BF16) before it can compute with it — in theory
+#     that should erase any speed advantage from using the smaller format.
+#   - We tested it anyway (2026-07-08, one request at a time): this image was
+#     actually FASTER than the FP8 image — 65.6 tokens/sec vs FP8's 60.5. Best
+#     guess why: NVFP4 still has to move half as much data through memory as
+#     FP8 does, and on this workload that saving mattered more than the cost of
+#     unpacking it. We haven't tested this with several requests running at
+#     once (only one at a time so far), or checked whether NVFP4's answers are
+#     as accurate as FP8's. See ../qwen-qwen3.6-35b-a3b-fp8-sglang for the FP8
+#     image and its numbers.
+#   - The other real benefit, regardless of speed: NVFP4 weights are ~20 GB vs
+#     ~70 GB for the unquantized model — a much faster download, and it leaves
+#     far more memory free for the KV cache (the model's working memory).
+#   - The linear-attention layers are kept at a higher precision (8-bit) by
+#     NVIDIA's quantization tool, to protect accuracy on the parts of the model
+#     most sensitive to rounding error.
+#   - Max 4 requests running at once (--max-running-requests).
+#   - We tried a different attention kernel (flashinfer instead of the default
+#     triton) and it made no difference here — 65.3 vs 65.6 tok/s — unlike the
+#     FP8 image, where switching kernels gave a real ~30% speedup.
+#
+# MTP (a speed feature) — NOT available on this image (2026-07-08 status):
+#   - MTP lets the model predict several words at once instead of one at a
+#     time, which can speed up generation a lot when it's supported.
+#   - NVIDIA's own page for this exact model says MTP works with it — but only
+#     when using a different serving engine (vLLM), not the one we use here
+#     (SGLang).
+#   - SGLang's own documentation currently says NVFP4 is officially supported
+#     only for a smaller version of this model (27B, not our 35B version) — so
+#     we're already off the beaten path just getting this image to run at all
+#     (that's why it needs a special nightly build with patches — see "Base
+#     image" below).
+#   - Bottom line: we don't have MTP working here, and we honestly don't know
+#     if it's even possible with our current setup — nobody has confirmed it
+#     one way or the other for SGLang specifically. Worth checking again if a
+#     newer SGLang version comes out.
 #
 # Base image: CUDA 13.x is required for sm_121a, and Qwen3.6 (qwen3_5_moe arch)
 # modeling support requires SGLang >= v0.5.13. The latest release (v0.5.14)

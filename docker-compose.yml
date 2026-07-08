@@ -15,6 +15,7 @@ services:
       CONTEXT_LEN: "${CONTEXT_LEN:-262144}"
       MEM_FRACTION: "${MEM_FRACTION:-0.85}"
       MAX_RUNNING_REQUESTS: "4"
+      ATTENTION_BACKEND: "${ATTENTION_BACKEND:-triton}"
       # EXTRA_ARGS: "--disable-cuda-graph"
     volumes:
       - hf-cache:/root/.cache/huggingface
