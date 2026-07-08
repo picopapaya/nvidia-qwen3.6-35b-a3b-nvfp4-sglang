@@ -51,6 +51,19 @@ SGLang **v0.5.13+** is required for the `qwen3_5_moe` architecture, and CUDA 13.
 
 Both are fixed on SGLang main, so this image pins a main-branch nightly (`lmsysorg/sglang:nightly-dev-cu13-20260707-b4155233`) and additionally carries `patches/modelopt-mixed-routing.py`, an idempotent backport of the routing fix that no-ops on patched bases but protects if the base is ever moved back to a release tag. Switch to a stable release tag once one ships these fixes.
 
+## Running alongside another ~30B-class model
+
+The packaged defaults (`CONTEXT_LEN=262144`, `MEM_FRACTION=0.85`) assume this is the only large model on the GPU. To run it side by side with another ~30B-class model (e.g. the FP8 sibling image) on a roughly 50/50 memory split, set in `.env`:
+
+```
+CONTEXT_LEN=131072
+MEM_FRACTION=0.5
+```
+
+**Verified 2026-07-08:** both this image and the FP8 sibling started and ran healthy at the same time with these settings, and 4 concurrent requests at realistic prompt sizes (~7-8K tokens) all completed cleanly with no errors.
+
+**This image handles the split better than the FP8 sibling.** Its smaller weights (~22 GB) leave a much bigger KV cache pool at these settings — **277,600 tokens**, vs FP8's 102,798 — enough for roughly two fully-independent 128K-context requests (FP8's pool can't even hold one). `MAX_RUNNING_REQUESTS` stays at the full 4 here, no auto-reduction needed. Still short of 3-4 truly independent max-context requests, but comfortably handles 4 concurrent requests at realistic prompt sizes like the ones tested above — treat `CONTEXT_LEN` as a safety ceiling for your longest realistic prompt, not a guarantee of full-context concurrency.
+
 ## Requirements
 
 - NVIDIA GB10 / DGX Spark (SM_121a)
