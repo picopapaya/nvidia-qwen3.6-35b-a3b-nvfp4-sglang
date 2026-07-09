@@ -2,16 +2,16 @@
 
 Docker image that runs **NVIDIA's NVFP4 quantization of Qwen3.6-35B-A3B** as an OpenAI-compatible API server, built for the **NVIDIA GB10 (DGX Spark)**.
 
-The weights are pre-quantized to **NVFP4** by NVIDIA with [TensorRT Model Optimizer](https://github.com/NVIDIA/TensorRT-Model-Optimizer) and served with [SGLang](https://github.com/sgl-project/sglang). The checkpoint is ModelOpt **mixed precision** (NVFP4 experts + FP8 linear-attention projections), so no `--quantization` flag is passed — SGLang auto-detects it as `modelopt_mixed`.
+The weights are pre-quantized to **NVFP4** by NVIDIA with [TensorRT Model Optimizer](https://github.com/NVIDIA/TensorRT-Model-Optimizer) and served with [SGLang](https://github.com/sgl-project/sglang). The checkpoint mixes precisions — most of the model is NVFP4, but a sensitive part (the linear-attention layers) is kept at a higher precision (FP8) to protect accuracy. SGLang detects this automatically; no `--quantization` flag needs to be set by hand.
 
-## What it is
+## What this image is
 
-Qwen3.6-35B-A3B is a hybrid-attention Mixture-of-Experts vision-language model:
+Qwen3.6-35B-A3B is a Mixture-of-Experts model that also understands images, not just text:
 
-- 35 billion total parameters, ~3 billion active per token (256 experts per MoE layer, 8 routed + 1 shared active), so it runs with the compute cost of a much smaller model.
-- Hybrid attention: 3 of every 4 layers use linear attention (Gated DeltaNet), every 4th layer uses full attention — long contexts are cheap in both compute and cache memory.
-- Multimodal: accepts text and images.
-- 262,144-token native context.
+- 35 billion total parameters, but for any given word it only actually uses about 3 billion of them ("35B-A3B" = 35B total, ~3B active). The rest sit in memory ready to be picked, but don't add to the compute cost — it runs like a much smaller model while still having the knowledge of a much bigger one.
+- Most of its layers use a cheaper, memory-light form of attention (a technique called Gated DeltaNet); only 1 in every 4 layers uses the full, more expensive kind. This is why it can handle very long conversations without needing huge amounts of extra memory for each one.
+- Accepts both text and images.
+- Supports up to 262,144 tokens (roughly 200,000 words) of context.
 
 ## NVFP4 on the GB10
 
@@ -46,10 +46,38 @@ MTP lets the model predict several words at once instead of one at a time, speed
 
 SGLang **v0.5.13+** is required for the `qwen3_5_moe` architecture, and CUDA 13.x for sm_121a — but the latest release (v0.5.14) still cannot load this checkpoint:
 
-1. It routes ModelOpt `MIXED_PRECISION` checkpoints to its DeepSeek-oriented `w4afp8` loader, which hardcodes 128×128 FP8 weight blocks and crashes on this model's 32-wide linear-attention projections (`output_partition_size = 32 is not divisible by ... block_n = 128`).
-2. Even with the routing fixed, its MoE loader miscomputes shard sizes for NVFP4-packed expert weights (`start (0) + length (512) exceeds dimension size (256)`).
+1. It routes this kind of mixed-precision checkpoint to a loader built for a different model family, which makes assumptions about weight shapes that don't hold here and crashes.
+2. Even after that's worked around, its MoE loader gets the memory layout wrong for NVFP4-packed weights.
 
-Both are fixed on SGLang main, so this image pins a main-branch nightly (`lmsysorg/sglang:nightly-dev-cu13-20260707-b4155233`) and additionally carries `patches/modelopt-mixed-routing.py`, an idempotent backport of the routing fix that no-ops on patched bases but protects if the base is ever moved back to a release tag. Switch to a stable release tag once one ships these fixes.
+Both are fixed on SGLang's main development branch, so this image pins a specific nightly build (`lmsysorg/sglang:nightly-dev-cu13-20260707-b4155233`) rather than an official release, plus a small patch that backports the fix. Switch to a stable release tag once one ships these fixes — check back periodically.
+
+## Configuration
+
+### Tunable via `.env`
+
+These have a default baked into the image, but you can override them per-deployment by setting them in a `.env` file next to `docker-compose.yml`. Docker Compose reads that file automatically and passes the values into the container when it starts — no image rebuild needed, just edit `.env` and restart.
+
+| Variable | Default | What it does |
+|---|---|---|
+| `HF_TOKEN` | *(empty)* | Optional Hugging Face token — avoids download rate limits, not required (this model isn't gated) |
+| `CONTEXT_LEN` | `262144` | The longest conversation/prompt (in tokens) the server will accept |
+| `MEM_FRACTION` | `0.85` | How much of the GPU's memory this server is allowed to claim |
+| `ATTENTION_BACKEND` | `triton` | Which kernel library handles the attention math — measured no faster with `flashinfer` for this image (see "Measured performance" above) |
+
+### Fixed — not overridable via `.env`
+
+These define what this image *is*, not how it's tuned. Changing them means you're describing a different image, not adjusting this one.
+
+| Variable | Value | Why it's fixed |
+|---|---|---|
+| `MODEL_ID` | `nvidia/Qwen3.6-35B-A3B-NVFP4` | This is which model the image downloads and runs — that's the image's whole identity |
+| `QUANTIZATION` | `auto` | Left as "auto" so SGLang detects the mixed-precision format itself; not something to tune |
+| `KV_CACHE_DTYPE` | `auto` | Left to SGLang to pick automatically |
+| `MAX_RUNNING_REQUESTS` | `4` | Not currently wired up as a `.env` override — could be added if a need for it comes up |
+| `REASONING_PARSER` | `qwen3` | Needed so SGLang understands this model's "thinking" output format |
+| `TOOL_CALL_PARSER` | `qwen3_coder` | Needed so SGLang understands this model's function-calling output format |
+
+`EXTRA_ARGS` also exists (passed straight through to the underlying server command) but isn't wired to `.env` by default — it's commented out in `docker-compose.yml` as a documented escape hatch. Uncomment it there directly if you need to pass something not covered above.
 
 ## Running alongside another ~30B-class model
 
@@ -82,20 +110,6 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
 ```
 
 The server starts on port **30000** and exposes an OpenAI-compatible API once the health check passes (allow up to 10 minutes for the first run while weights download).
-
-## Configuration
-
-| Variable | Default | Description |
-|---|---|---|
-| `HF_TOKEN` | *(empty)* | Optional Hugging Face token (avoids anonymous rate limits) |
-| `QUANTIZATION` | `auto` | `auto`/empty lets SGLang detect from the checkpoint (`modelopt_mixed`); any other value is passed as `--quantization` |
-| `CONTEXT_LEN` | `262144` | Maximum context length in tokens |
-| `MEM_FRACTION` | `0.85` | Fraction of VRAM reserved for weights + KV cache |
-| `MAX_RUNNING_REQUESTS` | `4` | Maximum concurrent requests |
-| `REASONING_PARSER` | `qwen3` | SGLang reasoning parser |
-| `TOOL_CALL_PARSER` | `qwen3_coder` | SGLang tool-call parser (per the SGLang Qwen3.6 cookbook) |
-| `ATTENTION_BACKEND` | `triton` | Attention backend for the full-attention layers. Now exposed as a compose override (2026-07-08); `flashinfer` measured no faster than the `triton` default for this image (see "Measured performance" above) |
-| `EXTRA_ARGS` | *(empty)* | Extra flags passed directly to `sglang.launch_server` |
 
 ## LiteLLM router
 
