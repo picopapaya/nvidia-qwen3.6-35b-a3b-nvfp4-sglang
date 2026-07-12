@@ -2,7 +2,7 @@
 
 Docker image that runs **NVIDIA's NVFP4 quantization of Qwen3.6-35B-A3B** as an OpenAI-compatible API server, built for the **NVIDIA GB10 (DGX Spark)**.
 
-The weights are pre-quantized to **NVFP4** by NVIDIA with [TensorRT Model Optimizer](https://github.com/NVIDIA/TensorRT-Model-Optimizer) and served with [SGLang](https://github.com/sgl-project/sglang). The checkpoint mixes precisions — most of the model is NVFP4, but a sensitive part (the linear-attention layers) is kept at a higher precision (FP8) to protect accuracy. SGLang detects this automatically; no `--quantization` flag needs to be set by hand.
+The weights are pre-quantized to **NVFP4** by NVIDIA with [TensorRT Model Optimizer](https://github.com/NVIDIA/TensorRT-Model-Optimizer) and served with [SGLang](https://github.com/sgl-project/sglang). The checkpoint mixes precisions — most of the model is NVFP4, but a sensitive part (the linear-attention layers) is kept at a higher precision (FP8) to protect accuracy.
 
 ## What this image is
 
@@ -27,9 +27,22 @@ SGLang **v0.5.13+** is required for the `qwen3_5_moe` architecture, and CUDA 13.
 
 One patch remains: a generic SGLang bug in the [CUDA-graph buffer sizing for MTP/EAGLE target-verify](https://docs.sglang.io/advanced_features/speculative_decoding.html) under-allocates on the triton attention backend, crashing the scheduler once a batch's context usage crosses a threshold. See `patches/triton-target-verify-mask-buffer.py` and `EXPERIMENT_NOTES.md` for the root cause.
 
-[MTP speculative decoding](https://docs.sglang.io/advanced_features/speculative_decoding.html) (patched, see above) is enabled by default via `EXTRA_ARGS` — see `EXPERIMENT_NOTES.md` for measured throughput gains.
+[MTP speculative decoding](https://docs.sglang.io/advanced_features/speculative_decoding.html) (patched, see above) is enabled by default via `EXTRA_ARGS` (see `EXPERIMENT_NOTES.md`) for measured throughput gains.
 
 ## Configuration
+
+### Fixed configuration
+
+These define what this image is, not how it's tuned. Changing them means you're describing a different image, not adjusting this one.
+
+| Variable | Value | Why it's fixed |
+| --- | --- | --- |
+| `MODEL_ID` | [`nvidia/Qwen3.6-35B-A3B-NVFP4`](https://huggingface.co/nvidia/Qwen3.6-35B-A3B-NVFP4) | This is which model the image downloads and runs — that's the image's whole identity |
+| `QUANTIZATION` | `auto` | Left as "auto" so SGLang [detects the mixed-precision format](https://docs.sglang.io/advanced_features/server_arguments.html#quantization-and-data-type) itself; not something to tune |
+| `KV_CACHE_DTYPE` | `auto` | Left to [SGLang to pick automatically](https://docs.sglang.io/advanced_features/server_arguments.html#quantization-and-data-type) |
+| `MAX_RUNNING_REQUESTS` | `4` | SGLang's [`--max-running-requests`](https://docs.sglang.io/advanced_features/server_arguments.html#memory-and-scheduling) — not currently wired up as a `.env` override; could be added if a need for it comes up |
+| `REASONING_PARSER` | `qwen3` | Needed so SGLang understands this model's ["thinking" output format](https://docs.sglang.io/advanced_features/server_arguments.html#api-related) |
+| `TOOL_CALL_PARSER` | `qwen3_coder` | Needed so SGLang understands this model's [function-calling output format](https://docs.sglang.io/advanced_features/server_arguments.html#api-related) |
 
 ### Tunable via `.env`
 
@@ -41,20 +54,7 @@ These have a default baked into the image, but you can override them per-deploym
 | `CONTEXT_LEN` | `262144` | The longest conversation/prompt (in tokens) the server will accept — SGLang's [`--context-length`](https://docs.sglang.io/advanced_features/server_arguments.html#model-and-tokenizer) |
 | `MEM_FRACTION` | `0.85` | How much of the GPU's memory this server is allowed to claim — SGLang's [`--mem-fraction-static`](https://docs.sglang.io/advanced_features/server_arguments.html#memory-and-scheduling) |
 | `ATTENTION_BACKEND` | `triton` | Which kernel library handles the [attention math](https://docs.sglang.io/advanced_features/attention_backend.html) |
-| `EXTRA_ARGS` | `--speculative-algorithm NEXTN --speculative-num-steps 3 --speculative-eagle-topk 1 --speculative-num-draft-tokens 4 --enable-fused-qk-norm-rope` | Extra flags passed straight to the SGLang server command. The default turns on [MTP speculative decoding](https://docs.sglang.io/advanced_features/speculative_decoding.html) plus a fused QK-norm-RoPE kernel for faster decoding (patched, see "SGLang compatibility" above) — see `EXPERIMENT_NOTES.md` for measured gains. Override to pass something else, or to add flags like `--cuda-graph-max-bs` |
-
-### Fixed — not overridable via `.env`
-
-These define what this image *is*, not how it's tuned. Changing them means you're describing a different image, not adjusting this one.
-
-| Variable | Value | Why it's fixed |
-| --- | --- | --- |
-| `MODEL_ID` | [`nvidia/Qwen3.6-35B-A3B-NVFP4`](https://huggingface.co/nvidia/Qwen3.6-35B-A3B-NVFP4) | This is which model the image downloads and runs — that's the image's whole identity |
-| `QUANTIZATION` | `auto` | Left as "auto" so SGLang [detects the mixed-precision format](https://docs.sglang.io/advanced_features/server_arguments.html#quantization-and-data-type) itself; not something to tune |
-| `KV_CACHE_DTYPE` | `auto` | Left to [SGLang to pick automatically](https://docs.sglang.io/advanced_features/server_arguments.html#quantization-and-data-type) |
-| `MAX_RUNNING_REQUESTS` | `4` | SGLang's [`--max-running-requests`](https://docs.sglang.io/advanced_features/server_arguments.html#memory-and-scheduling) — not currently wired up as a `.env` override; could be added if a need for it comes up |
-| `REASONING_PARSER` | `qwen3` | Needed so SGLang understands this model's ["thinking" output format](https://docs.sglang.io/advanced_features/server_arguments.html#api-related) |
-| `TOOL_CALL_PARSER` | `qwen3_coder` | Needed so SGLang understands this model's [function-calling output format](https://docs.sglang.io/advanced_features/server_arguments.html#api-related) |
+| `EXTRA_ARGS` | `--speculative-algorithm NEXTN`<br>`--speculative-num-steps 3`<br>`--speculative-eagle-topk 1`<br>`--speculative-num-draft-tokens 4`<br>`--enable-fused-qk-norm-rope` | Extra flags passed straight to the SGLang server command. The default turns on [MTP speculative decoding](https://docs.sglang.io/advanced_features/speculative_decoding.html) plus a fused QK-norm-RoPE kernel for faster decoding (patched, see "SGLang compatibility" above) — see `EXPERIMENT_NOTES.md` for measured gains. Override to pass something else, or to add flags like `--cuda-graph-max-bs` |
 
 ## Requirements
 
