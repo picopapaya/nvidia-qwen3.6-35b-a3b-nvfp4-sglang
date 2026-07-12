@@ -43,6 +43,26 @@ MTP + fused-qk-norm-rope (patched) is the new default (`docker-compose.yml`'s `E
 
 ---
 
+### Does raising MEM_FRACTION to 0.65 (from the co-resident 0.38) and CONTEXT_LEN to 131072 (128K, from 65536) change decode speed?
+
+**Findings**
+
+Configuration: `MEM_FRACTION=0.65`, `CONTEXT_LEN=131072`, `MAX_RUNNING_REQUESTS=4` (fixed, not overridable), `EXTRA_ARGS` unchanged from the persisted default (`--speculative-algorithm NEXTN --speculative-num-steps 3 --speculative-eagle-topk 1 --speculative-num-draft-tokens 4 --enable-fused-qk-norm-rope --cuda-graph-max-bs 8`). Measured solo (the Unsloth sibling was stopped) — verified via the startup log, not just the healthcheck: `mem_fraction_static=0.65`, `context_length=131072`, `max_running_requests=4` (unclamped), KV pool `max_total_num_tokens=2422030`, coherent output.
+
+| Concurrency | agg tok/s (mean ± stdev) | per-request tok/s (mean ± stdev) |
+|---|---|---|
+| 1 | 95.0 ± 5.1 | 95.1 ± 5.1 |
+| 2 | 146.6 ± 5.3 | 75.1 ± 1.6 |
+| 4 | 210.9 ± 5.0 | 54.2 ± 1.5 |
+
+Statistically identical to the 2026-07-12 MTP entry above (`MEM_FRACTION=0.5`/`CONTEXT_LEN=131072`: 94.9/137.6/210.5), aside from lower run-to-run variance at concurrency 2 (this run: ±5.3; that one: ±19.1, likely a warm-up artifact in the earlier run rather than a real difference).
+
+**Conclusion**
+
+`MEM_FRACTION` and `CONTEXT_LEN` are capacity knobs (how much KV cache / how long a context fits), not speed knobs — raising them well past what's strictly needed doesn't move decode throughput once `max_running_requests` is already unclamped at 4. The box currently has enough free memory (with the Unsloth sibling stopped) to run this generous, non-co-resident configuration.
+
+---
+
 ## 2026-07-08
 
 ### Is this image's NVFP4 quantization actually faster than the FP8 sibling on the GB10, given the chip has to unpack NVFP4 back to BF16 before it can compute with it?
