@@ -54,7 +54,18 @@ These have a default baked into the image, but you can override them per-deploym
 | `CONTEXT_LEN` | `262144` | The longest conversation/prompt (in tokens) the server will accept — SGLang's [`--context-length`](https://docs.sglang.io/advanced_features/server_arguments.html#model-and-tokenizer) |
 | `MEM_FRACTION` | `0.85` | How much of the GPU's memory this server is allowed to claim — SGLang's [`--mem-fraction-static`](https://docs.sglang.io/advanced_features/server_arguments.html#memory-and-scheduling) |
 | `ATTENTION_BACKEND` | `triton` | Which kernel library handles the [attention math](https://docs.sglang.io/advanced_features/attention_backend.html) |
-| `EXTRA_ARGS` | `--speculative-algorithm NEXTN`<br>`--speculative-num-steps 3`<br>`--speculative-eagle-topk 1`<br>`--speculative-num-draft-tokens 4`<br>`--enable-fused-qk-norm-rope` | Extra flags passed straight to the SGLang server command. The default turns on [MTP speculative decoding](https://docs.sglang.io/advanced_features/speculative_decoding.html) plus a fused QK-norm-RoPE kernel for faster decoding (patched, see "SGLang compatibility" above) — see `EXPERIMENT_NOTES.md` for measured gains. Override to pass something else, or to add flags like `--cuda-graph-max-bs` |
+
+`EXTRA_ARGS` — extra flags passed straight to the SGLang server command. Defaults to:
+
+```
+--speculative-algorithm NEXTN
+--speculative-num-steps 3
+--speculative-eagle-topk 1
+--speculative-num-draft-tokens 4
+--enable-fused-qk-norm-rope
+```
+
+This turns on [MTP speculative decoding](https://docs.sglang.io/advanced_features/speculative_decoding.html) plus a fused QK-norm-RoPE kernel for faster decoding (patched, see "SGLang compatibility" above, and see `EXPERIMENT_NOTES.md` for measured gains). Override to pass something else, or to add flags like `--cuda-graph-max-bs`.
 
 ## Requirements
 
