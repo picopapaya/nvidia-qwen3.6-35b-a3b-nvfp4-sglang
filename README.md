@@ -76,20 +76,6 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
 
 The server starts on port **30000** and exposes an OpenAI-compatible API once the health check passes (allow up to 10 minutes for the first run while weights download).
 
-To run this image side by side with another ~30B-class model on a shared GPU, see `EXPERIMENT_NOTES.md` for tested memory-split settings and their caveats.
-
-### LiteLLM router
-
-The model is registered in the shared LiteLLM proxy (`/home/shared/Documents/litellm/config.yaml`) as `nvidia-qwen3.6-35b-a3b-nvfp4-sglang`. Restart the router after config changes:
-
-```bash
-docker restart litellm
-```
-
-### Publishing
-
-Pushing a `v*.*.*` tag to GitHub builds the linux/arm64 image and publishes it to Docker Hub as `picopapaya/nvidia-qwen3.6-35b-a3b-nvfp4-sglang` (see `.github/workflows/docker-publish.yml`; requires `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN` repo secrets).
-
 ## License
 
 MIT — see [LICENSE](LICENSE).
