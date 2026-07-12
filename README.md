@@ -25,9 +25,11 @@ Compare with [`qwen-qwen3.6-35b-a3b-fp8-sglang`](https://github.com/picopapaya/q
 
 ### SGLang compatibility
 
-SGLang **v0.5.13+** is required for the `qwen3_5_moe` architecture, and CUDA 13.x for sm_121a. The latest official release still cannot load this checkpoint out of the box: it routes this kind of mixed-precision checkpoint to a loader built for a different model family, which makes assumptions about weight shapes that don't hold here, and its MoE loader gets the memory layout wrong for NVFP4-packed weights. This image works around both issues by pinning a specific SGLang nightly build (`lmsysorg/sglang:nightly-dev-cu13-20260707-b4155233`) plus a small patch that backports the fix from SGLang's main development branch.
+SGLang **v0.5.13+** is required for the `qwen3_5_moe` architecture, and CUDA 13.x for sm_121a. This image pins [`lmsysorg/sglang:v0.5.15-cu130`](https://github.com/sgl-project/sglang/releases), the first official SGLang release with native loading support for this checkpoint's mixed-precision (ModelOpt) format — no quantization-loading patch is needed.
 
-MTP (a speculative-decoding speed feature — see the FP8 sibling image's README) is not wired up on this image; see `EXPERIMENT_NOTES.md` for what's been checked so far.
+One patch remains: a generic SGLang bug in the [CUDA-graph buffer sizing for MTP/EAGLE target-verify](https://docs.sglang.io/advanced_features/speculative_decoding.html) under-allocates on the triton attention backend, crashing the scheduler once a batch's context usage crosses a threshold. See `patches/triton-target-verify-mask-buffer.py` and `EXPERIMENT_NOTES.md` for the root cause.
+
+[MTP speculative decoding](https://docs.sglang.io/advanced_features/speculative_decoding.html) (patched, see above) is enabled by default via `EXTRA_ARGS` — see `EXPERIMENT_NOTES.md` for measured throughput gains.
 
 ## Configuration
 
@@ -37,10 +39,11 @@ These have a default baked into the image, but you can override them per-deploym
 
 | Variable | Default | What it does |
 |---|---|---|
-| `HF_TOKEN` | *(empty)* | Optional Hugging Face token — avoids download rate limits, not required (this model isn't gated) |
-| `CONTEXT_LEN` | `262144` | The longest conversation/prompt (in tokens) the server will accept |
-| `MEM_FRACTION` | `0.85` | How much of the GPU's memory this server is allowed to claim |
-| `ATTENTION_BACKEND` | `triton` | Which kernel library handles the attention math |
+| `HF_TOKEN` | *(empty)* | Optional [Hugging Face token](https://huggingface.co/docs/hub/security-tokens) — avoids download rate limits, not required (this model isn't gated) |
+| `CONTEXT_LEN` | `262144` | The longest conversation/prompt (in tokens) the server will accept — SGLang's [`--context-length`](https://docs.sglang.io/advanced_features/server_arguments.html#model-and-tokenizer) |
+| `MEM_FRACTION` | `0.85` | How much of the GPU's memory this server is allowed to claim — SGLang's [`--mem-fraction-static`](https://docs.sglang.io/advanced_features/server_arguments.html#memory-and-scheduling) |
+| `ATTENTION_BACKEND` | `triton` | Which kernel library handles the [attention math](https://docs.sglang.io/advanced_features/attention_backend.html) |
+| `EXTRA_ARGS` | `--speculative-algorithm NEXTN --speculative-num-steps 3 --speculative-eagle-topk 1 --speculative-num-draft-tokens 4 --enable-fused-qk-norm-rope` | Extra flags passed straight to the SGLang server command. The default turns on [MTP speculative decoding](https://docs.sglang.io/advanced_features/speculative_decoding.html) plus a fused QK-norm-RoPE kernel for faster decoding (patched, see "SGLang compatibility" above) — see `EXPERIMENT_NOTES.md` for measured gains. Override to pass something else, or to add flags like `--cuda-graph-max-bs` |
 
 ### Fixed — not overridable via `.env`
 
@@ -48,14 +51,12 @@ These define what this image *is*, not how it's tuned. Changing them means you'r
 
 | Variable | Value | Why it's fixed |
 |---|---|---|
-| `MODEL_ID` | `nvidia/Qwen3.6-35B-A3B-NVFP4` | This is which model the image downloads and runs — that's the image's whole identity |
-| `QUANTIZATION` | `auto` | Left as "auto" so SGLang detects the mixed-precision format itself; not something to tune |
-| `KV_CACHE_DTYPE` | `auto` | Left to SGLang to pick automatically |
-| `MAX_RUNNING_REQUESTS` | `4` | Not currently wired up as a `.env` override — could be added if a need for it comes up |
-| `REASONING_PARSER` | `qwen3` | Needed so SGLang understands this model's "thinking" output format |
-| `TOOL_CALL_PARSER` | `qwen3_coder` | Needed so SGLang understands this model's function-calling output format |
-
-`EXTRA_ARGS` also exists (passed straight through to the underlying server command) but isn't wired to `.env` by default — it's commented out in `docker-compose.yml` as a documented escape hatch. Uncomment it there directly if you need to pass something not covered above.
+| `MODEL_ID` | [`nvidia/Qwen3.6-35B-A3B-NVFP4`](https://huggingface.co/nvidia/Qwen3.6-35B-A3B-NVFP4) | This is which model the image downloads and runs — that's the image's whole identity |
+| `QUANTIZATION` | `auto` | Left as "auto" so SGLang [detects the mixed-precision format](https://docs.sglang.io/advanced_features/server_arguments.html#quantization-and-data-type) itself; not something to tune |
+| `KV_CACHE_DTYPE` | `auto` | Left to [SGLang to pick automatically](https://docs.sglang.io/advanced_features/server_arguments.html#quantization-and-data-type) |
+| `MAX_RUNNING_REQUESTS` | `4` | SGLang's [`--max-running-requests`](https://docs.sglang.io/advanced_features/server_arguments.html#memory-and-scheduling) — not currently wired up as a `.env` override; could be added if a need for it comes up |
+| `REASONING_PARSER` | `qwen3` | Needed so SGLang understands this model's ["thinking" output format](https://docs.sglang.io/advanced_features/server_arguments.html#api-related) |
+| `TOOL_CALL_PARSER` | `qwen3_coder` | Needed so SGLang understands this model's [function-calling output format](https://docs.sglang.io/advanced_features/server_arguments.html#api-related) |
 
 ## Requirements
 
@@ -75,6 +76,18 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
 ```
 
 The server starts on port **30000** and exposes an OpenAI-compatible API once the health check passes (allow up to 10 minutes for the first run while weights download).
+
+### LiteLLM router
+
+The model is registered in the shared LiteLLM proxy (`/home/shared/Documents/litellm/config.yaml`) as `nvidia-qwen3.6-35b-a3b-nvfp4-sglang`. Restart the router after config changes:
+
+```bash
+docker restart litellm
+```
+
+### Publishing
+
+Pushing a `v*.*.*` tag to GitHub builds the linux/arm64 image and publishes it to Docker Hub as `picopapaya/nvidia-qwen3.6-35b-a3b-nvfp4-sglang` (see `.github/workflows/docker-publish.yml`; requires `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN` repo secrets).
 
 ## License
 
