@@ -35,7 +35,7 @@
 # instead of one at a time, which speeds up generation. Requires the
 # triton-target-verify-mask-buffer.py patch below — without it, MTP combined
 # with CUDA graphs crashes the scheduler once a batch's context usage crosses
-# a threshold (see the patch file and RESEARCH_NOTES.md for details).
+# a threshold (see the patch file and EXPERIMENT_NOTES.md for details).
 #
 # Base image: CUDA 13.x is required for sm_121a, and Qwen3.6 (qwen3_5_moe arch)
 # modeling support requires SGLang >= v0.5.13. v0.5.15 (2026-07-10) is the

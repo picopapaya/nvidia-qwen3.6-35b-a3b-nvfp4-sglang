@@ -20,7 +20,7 @@ services:
       # measured +18-41% decode throughput across concurrency 1-4 with no
       # coherence loss. Requires the triton-target-verify-mask-buffer.py patch
       # (see patches/) — without it, MTP + CUDA graphs crashes the scheduler
-      # once a batch's context usage crosses a threshold (see RESEARCH_NOTES.md).
+      # once a batch's context usage crosses a threshold (see EXPERIMENT_NOTES.md).
       EXTRA_ARGS: "${EXTRA_ARGS:---speculative-algorithm NEXTN --speculative-num-steps 3 --speculative-eagle-topk 1 --speculative-num-draft-tokens 4 --enable-fused-qk-norm-rope}"
     volumes:
       - hf-cache:/root/.cache/huggingface
