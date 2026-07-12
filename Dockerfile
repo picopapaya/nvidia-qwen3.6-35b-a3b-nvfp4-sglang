@@ -30,21 +30,12 @@
 #     triton) and it made no difference here — 65.3 vs 65.6 tok/s — unlike the
 #     FP8 image, where switching kernels gave a real ~30% speedup.
 #
-# MTP (a speed feature) — NOT available on this image (2026-07-08 status):
-#   - MTP lets the model predict several words at once instead of one at a
-#     time, which can speed up generation a lot when it's supported.
-#   - NVIDIA's own page for this exact model says MTP works with it — but only
-#     when using a different serving engine (vLLM), not the one we use here
-#     (SGLang).
-#   - SGLang's own documentation currently says NVFP4 is officially supported
-#     only for a smaller version of this model (27B, not our 35B version) — so
-#     we're already off the beaten path just getting this image to run at all
-#     (that's why it needs a special nightly build with patches — see "Base
-#     image" below).
-#   - Bottom line: we don't have MTP working here, and we honestly don't know
-#     if it's even possible with our current setup — nobody has confirmed it
-#     one way or the other for SGLang specifically. Worth checking again if a
-#     newer SGLang version comes out.
+# MTP (a speed feature) — now available as of v0.5.15 (see EXTRA_ARGS default
+# in docker-compose.yml). MTP lets the model predict several words at once
+# instead of one at a time, which speeds up generation. Requires the
+# triton-target-verify-mask-buffer.py patch below — without it, MTP combined
+# with CUDA graphs crashes the scheduler once a batch's context usage crosses
+# a threshold (see the patch file and RESEARCH_NOTES.md for details).
 #
 # Base image: CUDA 13.x is required for sm_121a, and Qwen3.6 (qwen3_5_moe arch)
 # modeling support requires SGLang >= v0.5.13. v0.5.15 (2026-07-10) is the
@@ -74,6 +65,14 @@ ENV MODEL_ID="nvidia/Qwen3.6-35B-A3B-NVFP4" \
 
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
+
+# Generic SGLang bug (also present on the compressed-tensors sibling image):
+# the CUDA-graph custom_mask buffer for MTP/EAGLE target-verify under-
+# allocates by num_draft_tokens**2 * max_bs elements, crashing the scheduler
+# once a batch's context usage crosses that margin — see the patch file for
+# details.
+COPY patches/triton-target-verify-mask-buffer.py /tmp/triton-target-verify-mask-buffer.py
+RUN python3 /tmp/triton-target-verify-mask-buffer.py && rm /tmp/triton-target-verify-mask-buffer.py
 
 EXPOSE 30000
 
