@@ -40,19 +40,19 @@ These define what this image is, not how it's tuned. Changing them means you're 
 | `MODEL_ID` | [`nvidia/Qwen3.6-35B-A3B-NVFP4`](https://huggingface.co/nvidia/Qwen3.6-35B-A3B-NVFP4) | This is which model the image downloads and runs — that's the image's whole identity. |
 | `QUANTIZATION` | `auto` | Left as "auto" so SGLang [detects the mixed-precision format](https://docs.sglang.io/advanced_features/server_arguments.html#quantization-and-data-type) itself; not something to tune. |
 | `KV_CACHE_DTYPE` | `auto` | Left to [SGLang to pick automatically](https://docs.sglang.io/advanced_features/server_arguments.html#quantization-and-data-type). |
-| `MAX_RUNNING_REQUESTS` | `4` | SGLang's [`--max-running-requests`](https://docs.sglang.io/advanced_features/server_arguments.html#memory-and-scheduling) — not currently wired up as a `.env` override; could be added if a need for it comes up. |
 | `REASONING_PARSER` | `qwen3` | Needed so SGLang understands this model's ["thinking" output format](https://docs.sglang.io/advanced_features/server_arguments.html#api-related). |
 | `TOOL_CALL_PARSER` | `qwen3_coder` | Needed so SGLang understands this model's [function-calling output format](https://docs.sglang.io/advanced_features/server_arguments.html#api-related). |
 
 ### Tunable via `.env`
 
-These have a default baked into the image, but you can override them per-deployment by setting them in a `.env` file next to `docker-compose.yml`. Docker Compose reads that file automatically and passes the values into the container when it starts — no image rebuild needed, just edit `.env` and restart.
+These have a default baked into the image, but you can override them per-deployment by setting them in a `.env` file next to `docker-compose.yml`. Docker Compose reads that file automatically and passes the values into the container when it starts — no image rebuild needed, just edit `.env` and restart. Copy `.env.example` to `.env` to get started.
 
 | Variable | Default | What it does |
 | --- | --- | --- |
 | `HF_TOKEN` | *(empty)* | Optional [Hugging Face token](https://huggingface.co/docs/hub/security-tokens) — avoids download rate limits, not required (this model isn't gated). |
 | `CONTEXT_LEN` | `262144` | The longest conversation/prompt (in tokens) the server will accept — SGLang's [`--context-length`](https://docs.sglang.io/advanced_features/server_arguments.html#model-and-tokenizer). |
 | `MEM_FRACTION` | `0.85` | How much of the GPU's memory this server is allowed to claim — SGLang's [`--mem-fraction-static`](https://docs.sglang.io/advanced_features/server_arguments.html#memory-and-scheduling). |
+| `MAX_RUNNING_REQUESTS` | `4` | SGLang's [`--max-running-requests`](https://docs.sglang.io/advanced_features/server_arguments.html#memory-and-scheduling) — how many requests SGLang will run concurrently. |
 | `ATTENTION_BACKEND` | `triton` | Which kernel library handles the [attention math](https://docs.sglang.io/advanced_features/attention_backend.html). |
 
 `EXTRA_ARGS` — extra flags passed straight to the SGLang server command. Defaults to:

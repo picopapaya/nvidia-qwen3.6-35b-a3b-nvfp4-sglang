@@ -1,5 +1,4 @@
 # NVIDIA Qwen3.6-35B-A3B (NVFP4 pre-quantized, ModelOpt) on GB10 / DGX Spark via SGLang.
-#   docker compose up          (HF_TOKEN optional — model is not gated)
 services:
   nvidia-qwen3.6-35b-a3b-nvfp4-sglang:
     image: picopapaya/nvidia-qwen3.6-35b-a3b-nvfp4-sglang:latest
@@ -14,7 +13,7 @@ services:
       KV_CACHE_DTYPE: "auto"
       CONTEXT_LEN: "${CONTEXT_LEN:-262144}"
       MEM_FRACTION: "${MEM_FRACTION:-0.85}"
-      MAX_RUNNING_REQUESTS: "4"
+      MAX_RUNNING_REQUESTS: "${MAX_RUNNING_REQUESTS:-4}"
       ATTENTION_BACKEND: "${ATTENTION_BACKEND:-triton}"
       # MTP (NEXTN) + fused QK-norm-RoPE kernel, decode CUDA graphs on:
       # measured +18-41% decode throughput across concurrency 1-4 with no
